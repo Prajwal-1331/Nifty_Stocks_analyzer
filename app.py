@@ -45,4 +45,4 @@ plt.xticks(rotation=90)
 plt.legend()
 
 st.pyplot(fig)
-df["Date"] = pd.to_datetime(df["Date"], errors="coerce", infer_datetime_format=True)
+
