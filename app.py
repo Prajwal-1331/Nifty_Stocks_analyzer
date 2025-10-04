@@ -1,70 +1,77 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sb
+import seaborn as sns
 import matplotlib.pyplot as plt
+import os
 
-# Load dataset
-df = pd.read_csv("Stocks_2025.csv")
+# Set page configuration
+st.set_page_config(page_title="Nifty Stock SMA Viewer", layout="wide")
+st.title("📈 Nifty Stocks - SMA Viewer")
 
-# Drop unwanted column if it exists
-if "Unnamed: 0" in df.columns:
-    df = df.drop("Unnamed: 0", axis=1)
+# Load and process data with caching
+@st.cache_data
+def load_data(file_path):
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"CSV file not found at: {file_path}")
 
-# --- Safe Date conversion ---
-if "Date" in df.columns:
-    try:
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce", infer_datetime_format=True)
-        df = df.dropna(subset=["Date"])
-    except Exception as e:
-        st.error(f"❌ Date conversion failed: {e}")
-        st.stop()
-else:
-    st.error("❌ No 'Date' column found in the dataset")
+    df = pd.read_csv(file_path)
+
+    # Clean up
+    if 'Unnamed: 0' in df.columns:
+        df = df.drop('Unnamed: 0', axis=1)
+
+    # Fix types and spacing
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df['Stock'] = df['Stock'].astype(str).str.replace(" ", "", regex=True)
+
+    # Handle possible NaT in dates
+    df = df.dropna(subset=['Date'])
+
+    # Add SMA columns
+    df['SMA_50'] = df['Close'].rolling(window=50, min_periods=1).mean()
+    df['SMA_200'] = df['Close'].rolling(window=200, min_periods=1).mean()
+
+    return df
+
+# Path to your CSV file
+csv_path = "Stocks_2025.csv"  # Make sure this is the correct relative path
+
+try:
+    df = load_data(csv_path)
+except Exception as e:
+    st.error(f"❌ Error loading data: {e}")
     st.stop()
 
-# Clean Stock column (remove spaces)
-if "Stock" in df.columns:
-    df["Stock"] = df["Stock"].replace(" ", "", regex=True)
-else:
-    st.error("❌ No 'Stock' column found in the dataset")
+# Sidebar - Filters
+st.sidebar.header("🔍 Filter Options")
+
+categories = sorted(df['Category'].dropna().unique())
+selected_category = st.sidebar.selectbox("Select Category", categories)
+
+filtered_df = df[df['Category'] == selected_category]
+
+stocks = sorted(filtered_df['Stock'].dropna().unique())
+selected_stock = st.sidebar.selectbox("Select Stock", stocks)
+
+stock_data = filtered_df[filtered_df['Stock'] == selected_stock]
+
+if stock_data.empty:
+    st.warning("No data available for this stock.")
     st.stop()
 
-# --- Compute Moving Averages ---
-df["SMA_50"] = df["Close"].rolling(window=50, min_periods=1).mean()
-df["SMA_200"] = df["Close"].rolling(window=200, min_periods=1).mean()
+# Chart
+st.subheader(f"📊 Price and Moving Averages for: *{selected_stock}*")
 
-# --- Streamlit UI ---
-st.title("📈 Nifty Stocks Interactive Dashboard")
+fig, ax = plt.subplots(figsize=(14, 6))
 
-# Category selection
-if "Category" in df.columns:
-    categories = df["Category"].unique()
-    category = st.selectbox("Select Category", categories)
-    d = df[df["Category"] == category]
-else:
-    st.error("❌ No 'Category' column found in the dataset")
-    st.stop()
+sns.lineplot(data=stock_data, x="Date", y="Close", label="Close", color='green', marker='D')
+sns.lineplot(data=stock_data, x="Date", y="SMA_50", label="SMA 50", color='blue')
+sns.lineplot(data=stock_data, x="Date", y="SMA_200", label="SMA 200", color='red')
 
-# Stock selection
-stocks = d["Stock"].unique()
-stock = st.selectbox("Select Stock", stocks)
-r = d[d["Stock"] == stock]
-
-# --- Plot Chart ---
-fig, ax = plt.subplots(figsize=(12, 5))
-
-sb.lineplot(x=r["Date"], y=r["Close"], color='g', marker='d', label="Close", ax=ax)
-sb.lineplot(x=r["Date"], y=r["SMA_50"], color='b', label="SMA 50", ax=ax)
-sb.lineplot(x=r["Date"], y=r["SMA_200"], color='r', label="SMA 200", ax=ax)
-
-ax.set_title(f"{stock} Price with SMA50 & SMA200")
+ax.set_title(f"{selected_stock} - Closing Price with SMA 50 & SMA 200", fontsize=16)
 ax.set_xlabel("Date")
 ax.set_ylabel("Price")
-plt.xticks(rotation=90)
-plt.legend()
+ax.legend()
+plt.xticks(rotation=45)
 
 st.pyplot(fig)
-
-# --- Optional Debug Info ---
-if st.checkbox("Show raw data"):
-    st.write(r.head(20))
